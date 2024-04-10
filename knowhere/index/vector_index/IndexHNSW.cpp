@@ -315,6 +315,16 @@ IndexHNSW::Size() {
     return index_->cal_size();
 }
 
+int64_t
+IndexHNSW::Getcmp() {
+    if (!index_) {
+        KNOWHERE_THROW_MSG("index not initialize");
+    }
+    auto tmp = index_->cmp_time;
+    index_->cmp_time = 0;
+    return tmp;
+}
+
 #if 0
 void
 IndexHNSW::ClearStatistics() {

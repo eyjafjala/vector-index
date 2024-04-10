@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <vector>
-
+#include "knowhere/index/vector_index/IndexHNSW.h"
 #include "unittest/benchmark/benchmark_knowhere.h"
 
 class Benchmark_knowhere_float : public Benchmark_knowhere {
@@ -126,7 +126,6 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
         auto conf = cfg;
         auto M = knowhere::GetIndexParamHNSWM(conf);
         auto efConstruction = knowhere::GetIndexParamEfConstruction(conf);
-
         printf("\n[%0.3f s] %s | %s | M=%ld | efConstruction=%ld\n", get_time_diff(), ann_test_name_.c_str(),
                index_type_.c_str(), M, efConstruction);
         printf("================================================================================\n");
@@ -139,7 +138,8 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
                     CALC_TIME_SPAN(auto result = index_->Query(ds_ptr, conf, nullptr));
                     auto ids = knowhere::GetDatasetIDs(result);
                     float recall = CalcRecall(ids, nq, k);
-                    printf("  ef = %4d, nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f\n", ef, nq, k, t_diff, recall);
+                    auto cmp = index_->Getcmp();
+                    printf("  ef = %4d, nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f, cmp = %.4f\n", ef, nq, k, t_diff, recall, 1.0 * cmp / nq);
                 }
             }
         }
@@ -269,10 +269,9 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
     const int32_t NBITS_ = 8;
 
     // HNSW index params
-    const std::vector<int32_t> HNSW_Ms_ = {16};
-    const std::vector<int32_t> EFCONs_ = {200};
-    const std::vector<int32_t> EFs_ = {16, 32, 64, 128, 256, 512};
-
+    const std::vector<int32_t> HNSW_Ms_ = {8};
+    const std::vector<int32_t> EFCONs_ = {100};
+    const std::vector<int32_t> EFs_ = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 410, 420, 430, 440, 450, 460, 470, 480, 490, 500};
     // ANNOY index params
     const std::vector<int32_t> N_TREEs_ = {8};
     const std::vector<int32_t> SEARCH_Ks_ = {50, 100, 500};

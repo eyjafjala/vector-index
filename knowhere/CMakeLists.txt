@@ -178,7 +178,7 @@ if (NOT TARGET knowhere)
     target_include_directories(knowhere PUBLIC ${KNOWHERE_SOURCE_DIR}/knowere)
 endif ()
 
-target_link_libraries(knowhere ${depend_libs})
+target_link_libraries(knowhere ${depend_libs} /usr/lib64/libblas.so /usr/lib64/liblapack.so)
 
 set (KNOWHERE_INCLUDE_DIRS
         ${KNOWHERE_SOURCE_DIR}
@@ -186,7 +186,9 @@ set (KNOWHERE_INCLUDE_DIRS
         ${FAISS_INCLUDE_DIR}
         ${OpenBLAS_INCLUDE_DIR}
         ${LAPACK_INCLUDE_DIR}
+        /usr/lib64
         )
+message(STATUS "include_lapack?" ${KNOWHERE_INCLUDE_DIRS})
 
 target_include_directories(knowhere PUBLIC ${KNOWHERE_INCLUDE_DIRS})
 

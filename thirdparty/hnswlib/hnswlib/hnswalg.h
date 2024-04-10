@@ -127,6 +127,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     std::vector<std::mutex> link_list_locks_;
 
+    mutable int cmp_time = 0;
     // Locks to prevent race condition during update/insert of an element at same time.
     // Note: Locks for additions can also be used to prevent this race condition if the querying of KNN is not exposed
     // along with update/inserts i.e multithread insert/update/query in parallel.
@@ -262,6 +263,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         dist_t lowerBound;
         if (!has_deletions || !bitset.test((int64_t)ep_id)) {
             dist_t dist = fstdistfunc_(data_point, getDataByInternalId(ep_id), dist_func_param_);
+            cmp_time ++;
             lowerBound = dist;
             top_candidates.emplace(dist, ep_id);
             candidate_set.emplace(-dist, ep_id);
@@ -309,7 +311,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
                     char* currObj1 = (getDataByInternalId(candidate_id));
                     dist_t dist = fstdistfunc_(data_point, currObj1, dist_func_param_);
-
+                    cmp_time ++;
                     if (top_candidates.size() < ef || lowerBound > dist) {
                         candidate_set.emplace(-dist, candidate_id);
 #ifdef USE_SSE
@@ -1119,7 +1121,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
         tableint currObj = enterpoint_node_;
         dist_t curdist = fstdistfunc_(query_data, getDataByInternalId(enterpoint_node_), dist_func_param_);
-
+        cmp_time ++;
         for (int level = maxlevel_; level > 0; level--) {
             bool changed = true;
             while (changed) {
@@ -1140,7 +1142,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                         stats.accessed_points_.push_back(cand);
                     }
                     dist_t d = fstdistfunc_(query_data, getDataByInternalId(cand), dist_func_param_);
-
+                    cmp_time ++;
                     if (d < curdist) {
                         curdist = d;
                         currObj = cand;

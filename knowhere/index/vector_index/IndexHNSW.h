@@ -57,6 +57,9 @@ class IndexHNSW : public VecIndex {
     int64_t
     Size() override;
 
+    int64_t
+    Getcmp() override;
+
 #if 0
     void
     ClearStatistics() override;

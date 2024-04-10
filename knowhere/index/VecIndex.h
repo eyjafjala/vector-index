@@ -62,6 +62,11 @@ class VecIndex : public Index {
     virtual int64_t
     Count() = 0;
 
+    virtual int64_t
+    Getcmp(){
+        return 0;
+    };
+
     virtual StatisticsPtr
     GetStatistics() {
         return stats;

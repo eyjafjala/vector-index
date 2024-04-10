@@ -273,7 +273,7 @@ else()
   #target_link_libraries(faiss_avx2 PRIVATE ${BLAS_LIBRARIES})
 
   find_package(LAPACK REQUIRED)
-  message(STATUS "Faiss LAPACK libraries: ${BLAS_LIBRARIES}")
+  message(STATUS "Faiss LAPACK libraries: ${LAPACK_LIBRARIES}")
   target_link_libraries(faiss PRIVATE ${LAPACK_LIBRARIES})
   #target_link_libraries(faiss_avx2 PRIVATE ${LAPACK_LIBRARIES})
 endif()

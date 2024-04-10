@@ -104,7 +104,7 @@ if ( KNOWHERE_SUPPORT_NSG )
 endif ()
 
 add_executable( test_knowhere ${ALL_INDEXING_SRCS} )
-target_link_libraries( test_knowhere knowhere ${DEPEND_LIBS} )
+target_link_libraries( test_knowhere knowhere ${DEPEND_LIBS} /usr/lib64/liblapack.so)
 
 install(TARGETS test_knowhere DESTINATION unittest)
 
