@@ -127,7 +127,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     std::vector<std::mutex> link_list_locks_;
 
-    mutable int cmp_time = 0;
+    mutable std::atomic<int> cmp_time = 0;
     // Locks to prevent race condition during update/insert of an element at same time.
     // Note: Locks for additions can also be used to prevent this race condition if the querying of KNN is not exposed
     // along with update/inserts i.e multithread insert/update/query in parallel.
@@ -156,6 +156,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
     inline char*
     getDataByInternalId(tableint internal_id) const {
         return (data_level0_memory_ + internal_id * size_data_per_element_ + offsetData_);
+    }
+
+    int get_cmp(){
+        int tmp = cmp_time;
+        cmp_time = 0;
+        return tmp;
     }
 
     int

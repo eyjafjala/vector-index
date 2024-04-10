@@ -320,8 +320,7 @@ IndexHNSW::Getcmp() {
     if (!index_) {
         KNOWHERE_THROW_MSG("index not initialize");
     }
-    auto tmp = index_->cmp_time;
-    index_->cmp_time = 0;
+    auto tmp = index_->get_cmp();
     return tmp;
 }
 
