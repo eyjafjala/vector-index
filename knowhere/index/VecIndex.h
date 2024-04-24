@@ -67,6 +67,11 @@ class VecIndex : public Index {
         return 0;
     };
 
+    virtual int64_t
+    Get_metric_cmp(){
+        return 0;
+    };
+
     virtual StatisticsPtr
     GetStatistics() {
         return stats;

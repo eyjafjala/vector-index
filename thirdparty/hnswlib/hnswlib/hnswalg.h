@@ -164,6 +164,12 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return tmp;
     }
 
+    long get_metric_cmp(){
+        auto cp = metric_distance_computations.load();
+        metric_distance_computations = 0;
+        return cp;
+    }
+
     int
     getRandomLevel(double reverse_size) {
         std::uniform_real_distribution<double> distribution(0.0, 1.0);
@@ -312,6 +318,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 _mm_prefetch(data_level0_memory_ + (*(data + j + 1)) * size_data_per_element_ + offsetData_,
                              _MM_HINT_T0);  ////////////
 #endif
+                //cmp_time ++;
                 if (!(visited_array[candidate_id] == visited_array_tag)) {
                     visited_array[candidate_id] = visited_array_tag;
 

@@ -324,6 +324,15 @@ IndexHNSW::Getcmp() {
     return tmp;
 }
 
+int64_t
+IndexHNSW::Get_metric_cmp() {
+    if (!index_) {
+        KNOWHERE_THROW_MSG("index not initialize");
+    }
+    auto tmp = index_->get_metric_cmp();
+    return tmp;
+}
+
 #if 0
 void
 IndexHNSW::ClearStatistics() {

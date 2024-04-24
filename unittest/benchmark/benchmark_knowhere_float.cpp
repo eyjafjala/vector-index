@@ -12,8 +12,11 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include "knowhere/index/vector_index/IndexHNSW.h"
+#include "knowhere/archive/BruteForce.h"
 #include "unittest/benchmark/benchmark_knowhere.h"
 
+extern std::string dataset_name;
+extern int para_k;
 class Benchmark_knowhere_float : public Benchmark_knowhere {
  public:
     void
@@ -139,7 +142,8 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
                     auto ids = knowhere::GetDatasetIDs(result);
                     float recall = CalcRecall(ids, nq, k);
                     auto cmp = index_->Getcmp();
-                    printf("  ef = %4d, nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f, cmp = %.4f\n", ef, nq, k, t_diff, recall, 1.0 * cmp / nq);
+                    auto hnswcmp = index_->Get_metric_cmp();
+                    printf("  ef = %4d, nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f, cmp = %.4f, metric_cmp = %.4f\n", ef, nq, k, t_diff, recall, 1.0 * cmp / nq,1.0 * hnswcmp / nq);
                 }
             }
         }
@@ -229,11 +233,26 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
         printf("[%.3f s] Test '%s/%s' done\n\n", get_time_diff(), ann_test_name_.c_str(), index_type_.c_str());
     }
 
+    void test_flat(const knowhere::Config& cfg) {
+        auto conf = cfg;
+        int32_t nq = NQs_[0];
+        int32_t k = TOPKs_[0];
+        knowhere::SetMetaTopk(conf, k);
+        knowhere::DatasetPtr ds_ptr = knowhere::GenDataset(nb_, dim_, xb_);
+        knowhere::DatasetPtr qs_ptr = knowhere::GenDataset(nq, dim_, xq_);
+        CALC_TIME_SPAN(auto result = knowhere::BruteForce::Search(ds_ptr, qs_ptr, conf, nullptr));
+        auto ids = knowhere::GetDatasetIDs(result);
+        float recall = CalcRecall(ids, nq, k);
+        printf("  nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f\n", nq, k, t_diff, recall);
+        printf("================================================================================\n");
+        printf("[%.3f s] Test '%s/%s' done\n\n", get_time_diff(), ann_test_name_.c_str(), "flat");
+    }
+
  protected:
     void
     SetUp() override {
         T0_ = elapsed();
-        set_ann_test_name("sift-128-euclidean");
+        set_ann_test_name(dataset_name.c_str());
         parse_ann_test_name();
         load_hdf5_data<false>();
 
@@ -258,7 +277,7 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
 
  protected:
     const std::vector<int32_t> NQs_ = {10000};
-    const std::vector<int32_t> TOPKs_ = {100};
+    const std::vector<int32_t> TOPKs_ = {para_k};
 
     // IVF index params
     const std::vector<int32_t> NLISTs_ = {1024};
@@ -269,12 +288,12 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
     const int32_t NBITS_ = 8;
 
     // HNSW index params
-    const std::vector<int32_t> HNSW_Ms_ = {8};
+    const std::vector<int32_t> HNSW_Ms_ = {16};
     const std::vector<int32_t> EFCONs_ = {100};
-    const std::vector<int32_t> EFs_ = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 410, 420, 430, 440, 450, 460, 470, 480, 490, 500};
+    const std::vector<int32_t> EFs_ = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300};
     // ANNOY index params
     const std::vector<int32_t> N_TREEs_ = {8};
-    const std::vector<int32_t> SEARCH_Ks_ = {50, 100, 500};
+    const std::vector<int32_t> SEARCH_Ks_ = {para_k};
 };
 
 TEST_F(Benchmark_knowhere_float, TEST_IDMAP) {
@@ -397,6 +416,11 @@ TEST_F(Benchmark_knowhere_float, TEST_HNSW) {
             test_hnsw(conf);
         }
     }
+}
+
+TEST_F(Benchmark_knowhere_float, TEST_Flat) {
+    knowhere::Config conf = cfg_;
+    test_flat(conf);
 }
 
 TEST_F(Benchmark_knowhere_float, TEST_ANNOY) {
