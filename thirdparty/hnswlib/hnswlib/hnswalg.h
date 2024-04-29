@@ -170,6 +170,10 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
         return cp;
     }
 
+    dist_t Calc_dist(tableint x, tableint y) {
+        return fstdistfunc_(getDataByInternalId(x), getDataByInternalId(y), dist_func_param_);
+    }
+
     int
     getRandomLevel(double reverse_size) {
         std::uniform_real_distribution<double> distribution(0.0, 1.0);

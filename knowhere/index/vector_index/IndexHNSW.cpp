@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <set>
 #include <omp.h>
 
 #include "common/Exception.h"
@@ -120,6 +121,123 @@ if (CheckKeyInConfig(config, meta::BUILD_THREAD_NUM))
 #endif
     // LOG_KNOWHERE_DEBUG_ << "IndexHNSW::Train finished, show statistics:";
     // LOG_KNOWHERE_DEBUG_ << GetStatistics()->ToString();
+}
+
+void 
+IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, const VecIndexPtr index1, const VecIndexPtr index2) {
+    GET_TENSOR_DATA_DIM(dataset_ptr)
+    hnswlib::SpaceInterface<float>* space;
+    std::string metric_type = GetMetaMetricType(config);
+    if (metric_type == metric::L2) {
+        space = new hnswlib::L2Space(dim);
+    } else if (metric_type == metric::IP) {
+        space = new hnswlib::InnerProductSpace(dim);
+    } else {
+        KNOWHERE_THROW_MSG("Metric type not supported: " + metric_type);
+    }
+    index_ = std::make_shared<hnswlib::HierarchicalNSW<float>>(space, rows, GetIndexParamHNSWM(config),
+                                                                GetIndexParamEfConstruction(config));
+    index_->stats_enable_ = (STATISTICS_LEVEL >= 3);
+    //copy the data and update the links
+    //level0
+    std::shared_ptr<IndexHNSW> idx1 = std::dynamic_pointer_cast<IndexHNSW> (index1);
+    std::shared_ptr<IndexHNSW> idx2 = std::dynamic_pointer_cast<IndexHNSW> (index2);
+
+    std::shared_ptr<hnswlib::HierarchicalNSW<float>> graph1 = idx1->index_;
+    std::shared_ptr<hnswlib::HierarchicalNSW<float>> graph2 = idx2->index_;
+
+    //copy the data and neighbors
+    auto level0_offset = graph1->cur_element_count * graph1->size_data_per_element_;
+    memcpy(index_->data_level0_memory_, graph1->data_level0_memory_, level0_offset);
+    memcpy(index_->data_level0_memory_ + level0_offset, graph2->data_level0_memory_, graph2->cur_element_count * graph2->size_data_per_element_);
+    index_->cur_element_count = graph1->cur_element_count + graph2->cur_element_count;
+    index_->enterpoint_node_ = graph1->maxlevel_ >= graph2->maxlevel_ ? graph1->enterpoint_node_ : graph2->enterpoint_node_;
+    
+    auto half = graph1->cur_element_count;
+    for(int i = 0;i < index_->cur_element_count;i ++) {
+        if (i < half) {
+            index_->element_levels_[i] = graph1->element_levels_[i];
+            if (graph1->element_levels_[i]) {
+                index_->linkLists_[i] = (char*)malloc(index_->size_links_per_element_ * graph1->element_levels_[i] + 1);
+                if (index_->linkLists_[i] == nullptr)
+                    throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
+                memcpy(index_->linkLists_[i], graph1->linkLists_[i], index_->size_links_per_element_ * graph1->element_levels_[i] + 1);
+            }
+        } else {
+            index_->element_levels_[i] = graph2->element_levels_[i - half];
+            if (graph2->element_levels_[i - half]) {
+                index_->linkLists_[i] = (char*)malloc(index_->size_links_per_element_ * graph2->element_levels_[i - half] + 1);
+                if (index_->linkLists_[i] == nullptr)
+                    throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
+                memcpy(index_->linkLists_[i], graph2->linkLists_[i - half], index_->size_links_per_element_ * graph2->element_levels_[i - half] + 1);
+
+                for(int level = 1;level < graph2->element_levels_[i - half];level ++) {
+                    unsigned int* data = index_->get_linklist(i, level);
+                    int size = index_->getListCount(data);
+                    hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+                    for (int i = 0; i < size; i++) {
+                            hnswlib::tableint& cand = datal[i];
+                            cand += half;
+                    }           
+                }
+            }
+            unsigned int* data = index_->get_linklist0(i);
+            int size = index_->getListCount(data);
+            hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+            for (int i = 0; i < size; i++) {
+                    hnswlib::tableint& cand = datal[i];
+                    cand += half;
+                } 
+            
+        }
+    }
+
+    struct cmp {
+        bool operator()(const std::pair<int,hnswlib::tableint>& x,std::pair<int,hnswlib::tableint>& y) const {
+            if (x.first == y.first)
+                return x.second < y.second;
+            return x.first > y.first;
+        }
+    };
+    std::vector<std::pair<int,hnswlib::tableint>> node1,node2;
+    for(int i = 0;i < half;i ++)
+        node1.push_back({index_->element_levels_[i], i});
+    for(int i = half;i < index_->cur_element_count;i ++)
+        node2.push_back({index_->element_levels_[i], i});
+    sort(node1.begin(), node1.end(), cmp());
+    sort(node2.begin(), node2.end(), cmp());
+    //connect the two graph by random edges
+    int pointer1 = 0,pointer2 = 0;
+    for(int level = std::min(graph1->maxlevel_,graph2->maxlevel_);level >= 0;level --) {
+        if (level == 0)
+            pointer1 = node1.size(),pointer2 = node2.size();
+        for(;pointer1 < node1.size();pointer1 ++)  
+            if (node1[pointer1].first < level)
+                break;
+
+        for(;pointer2 < node2.size();pointer2 ++)  
+            if (node2[pointer2].first < level)
+                break; 
+
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        std::uniform_int_distribution<> distrib1(0, pointer1 - 1),distrib2(0, pointer2 - 1);
+        //nn list of all node's neighbor in this layer
+        std::vector<std::vector<std::pair<float, hnswlib::tableint>>> anng(pointer1 + pointer2, std::vector<std::pair<float, hnswlib::tableint>>(index_->ef_construction_));
+        for(int i = 0;i < pointer1;i ++) {
+            std::set<int> NewNode;
+            while (NewNode.size() < 4) {
+                int randomNum = distrib2(gen);
+                NewNode.insert(randomNum);
+            }
+            for(auto v : NewNode) {
+                //anng[i].push_back({index_->fstdistfunc_()})
+            }
+
+        }
+    }
+
+
 }
 
 DatasetPtr

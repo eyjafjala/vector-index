@@ -277,8 +277,8 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
 
  protected:
     const std::vector<int32_t> NQs_ = {10000};
-    const std::vector<int32_t> TOPKs_ = {para_k};
-
+    //const std::vector<int32_t> TOPKs_ = {para_k};
+    const std::vector<int32_t> TOPKs_ = {1, 10, 100};
     // IVF index params
     const std::vector<int32_t> NLISTs_ = {1024};
     const std::vector<int32_t> NPROBEs_ = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
@@ -289,11 +289,11 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
 
     // HNSW index params
     const std::vector<int32_t> HNSW_Ms_ = {16};
-    const std::vector<int32_t> EFCONs_ = {100};
-    const std::vector<int32_t> EFs_ = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210, 220, 230, 240, 250, 260, 270, 280, 290, 300};
+    const std::vector<int32_t> EFCONs_ = {40};
+    const std::vector<int32_t> EFs_ = {16, 32, 64, 128, 150, 200, 256, 400, 512, 650};
     // ANNOY index params
     const std::vector<int32_t> N_TREEs_ = {8};
-    const std::vector<int32_t> SEARCH_Ks_ = {para_k};
+    const std::vector<int32_t> SEARCH_Ks_ = {50, 100, 150, 200, 250};
 };
 
 TEST_F(Benchmark_knowhere_float, TEST_IDMAP) {
@@ -361,6 +361,8 @@ TEST_F(Benchmark_knowhere_float, TEST_IVF_PQ) {
 
     knowhere::Config conf = cfg_;
     knowhere::SetIndexParamNbits(conf, NBITS_);
+    std::vector<int> glove_m = {10, 20, 25};
+    auto Ms_ = dim_ == 100 ? glove_m : this->Ms_;
     for (auto m : Ms_) {
         knowhere::SetIndexParamM(conf, m);
         for (auto nlist : NLISTs_) {
@@ -413,6 +415,22 @@ TEST_F(Benchmark_knowhere_float, TEST_HNSW) {
             create_index(index_file_name, conf);
             index_->Load(binary_set_);
             binary_set_.clear();
+            test_hnsw(conf);
+        }
+    }
+}
+
+TEST_F(Benchmark_knowhere_float, TEST_HNSW_Merge_2) {
+    index_type_ = knowhere::IndexEnum::INDEX_HNSW;
+
+    knowhere::Config conf = cfg_;
+    for (auto M : HNSW_Ms_) {
+        knowhere::SetIndexParamHNSWM(conf, M);
+        for (auto efc : EFCONs_) {
+            knowhere::SetIndexParamEfConstruction(conf, efc / 2);
+
+            std::string index_file_name = get_index_name({M, efc}) + ".Merge_2";
+            create_merge_index(index_file_name, conf);
             test_hnsw(conf);
         }
     }

@@ -38,7 +38,8 @@ test_knowhere_rhnsw_sq:
 	./benchmark_knowhere_float --gtest_filter="Benchmark_knowhere_float.TEST_RHNSW_SQ" | tee test_knowhere_rhnsw_sq.log
 test_knowhere_rhnsw_pq:
 	./benchmark_knowhere_float --gtest_filter="Benchmark_knowhere_float.TEST_RHNSW_PQ" | tee test_knowhere_rhnsw_pq.log
-
+test_knowhere_hnsw_merge_2:
+	./benchmark_knowhere_float --gtest_filter="Benchmark_knowhere_float.TEST_HNSW_Merge_2" | tee test_knowhere_hnsw_merge_2.log
 ###################################################################################################
 # Test Knowhere index range
 test_knowhere_range_all: test_knowhere_range_idmap test_knowhere_range_ivf_flat_nm test_knowhere_range_ivf_sq8 test_knowhere_range_ivf_pq test_knowhere_range_hnsw

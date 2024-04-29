@@ -63,6 +63,8 @@ class IndexHNSW : public VecIndex {
     int64_t
     Get_metric_cmp() override;
 
+    void 
+    Merge_build(const DatasetPtr&, const Config&, const VecIndexPtr, const VecIndexPtr) override;
 #if 0
     void
     ClearStatistics() override;

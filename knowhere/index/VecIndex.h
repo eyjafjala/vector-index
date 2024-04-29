@@ -28,6 +28,8 @@ namespace knowhere {
 
 #define RAW_DATA "RAW_DATA"
 #define QUANTIZATION_DATA "QUANTIZATION_DATA"
+class VecIndex;
+using VecIndexPtr = std::shared_ptr<VecIndex>;
 
 class VecIndex : public Index {
  public:
@@ -65,12 +67,16 @@ class VecIndex : public Index {
     virtual int64_t
     Getcmp(){
         return 0;
-    };
+    }
 
     virtual int64_t
     Get_metric_cmp(){
         return 0;
-    };
+    }
+
+    virtual void
+    Merge_build(const DatasetPtr& dataset, const Config& config, const VecIndexPtr index1, const VecIndexPtr index2) {
+    }
 
     virtual StatisticsPtr
     GetStatistics() {
@@ -96,7 +102,5 @@ class VecIndex : public Index {
     IndexMode index_mode_ = IndexMode::MODE_CPU;
     StatisticsPtr stats = nullptr;
 };
-
-using VecIndexPtr = std::shared_ptr<VecIndex>;
 
 }  // namespace knowhere
