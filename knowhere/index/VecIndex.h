@@ -78,6 +78,10 @@ class VecIndex : public Index {
     Merge_build(const DatasetPtr& dataset, const Config& config, const VecIndexPtr index1, const VecIndexPtr index2) {
     }
 
+    virtual void
+    Delete_By_Rate(double rate) {
+    }
+
     virtual StatisticsPtr
     GetStatistics() {
         return stats;

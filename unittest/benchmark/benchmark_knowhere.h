@@ -96,8 +96,32 @@ class Benchmark_knowhere : public Benchmark_sift {
         knowhere::VecIndexPtr index1 = factory.CreateVecIndex(index_type_, mode);
         knowhere::VecIndexPtr index2 = factory.CreateVecIndex(index_type_, mode);
         index1->BuildAll(ds_ptr1, conf);
+        printf("[%.3f s] Building half1 of HNSW\n", get_time_diff());
         index2->BuildAll(ds_ptr2, conf);
-        index_->Merge_build(ds_ptr, conf, index1,index2);
+        printf("[%.3f s] Building half2 of HNSW\n", get_time_diff());
+        //puts("ok to build half graph");
+        index_->Merge_build(ds_ptr, conf, index1, index2);
+        printf("[%.3f s] Writing index file: %s\n", get_time_diff(), index_file_name.c_str());
+        write_index(index_file_name, conf);
+    }
+    void 
+    create_merge_insert_index(const std::string& index_file_name,
+                        const knowhere::Config& conf,
+                        const knowhere::IndexMode mode = knowhere::IndexMode::MODE_CPU) {
+        printf("[%.3f s] Building all on %d vectors\n", get_time_diff(), nb_);
+        auto& factory = knowhere::VecIndexFactory::GetInstance();
+        knowhere::DatasetPtr ds_ptr = knowhere::GenDataset(nb_, dim_, xb_);
+        knowhere::DatasetPtr ds_ptr1 = knowhere::GenDataset(nb_ / 2, dim_, xb_);
+        knowhere::DatasetPtr ds_ptr2 = knowhere::GenDataset(nb_ / 2, dim_, (float*)xb_ + nb_ / 2 * dim_);
+        index_ = factory.CreateVecIndex(index_type_, mode);
+        knowhere::VecIndexPtr index1 = factory.CreateVecIndex(index_type_, mode);
+        knowhere::VecIndexPtr index2 = factory.CreateVecIndex(index_type_, mode);
+        index1->BuildAll(ds_ptr1, conf);
+        printf("[%.3f s] Building half1 of HNSW\n", get_time_diff());
+        index2->BuildAll(ds_ptr2, conf);
+        printf("[%.3f s] Building half2 of HNSW\n", get_time_diff());
+        //puts("ok to build half graph");
+        index_->BuildAll(ds_ptr, conf);
         printf("[%.3f s] Writing index file: %s\n", get_time_diff(), index_file_name.c_str());
         write_index(index_file_name, conf);
     }

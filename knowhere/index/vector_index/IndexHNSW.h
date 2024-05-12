@@ -65,6 +65,10 @@ class IndexHNSW : public VecIndex {
 
     void 
     Merge_build(const DatasetPtr&, const Config&, const VecIndexPtr, const VecIndexPtr) override;
+
+    void 
+    Delete_By_Rate(double rate) override;
+
 #if 0
     void
     ClearStatistics() override;

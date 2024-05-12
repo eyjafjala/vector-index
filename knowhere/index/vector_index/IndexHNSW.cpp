@@ -127,6 +127,7 @@ void
 IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, const VecIndexPtr index1, const VecIndexPtr index2) {
     GET_TENSOR_DATA_DIM(dataset_ptr)
     hnswlib::SpaceInterface<float>* space;
+    int smpN = 8;
     std::string metric_type = GetMetaMetricType(config);
     if (metric_type == metric::L2) {
         space = new hnswlib::L2Space(dim);
@@ -147,13 +148,15 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
     std::shared_ptr<hnswlib::HierarchicalNSW<float>> graph2 = idx2->index_;
 
     //copy the data and neighbors
-    auto level0_offset = graph1->cur_element_count * graph1->size_data_per_element_;
+    auto level0_offset = graph1->max_elements_ * graph1->size_data_per_element_;
     memcpy(index_->data_level0_memory_, graph1->data_level0_memory_, level0_offset);
-    memcpy(index_->data_level0_memory_ + level0_offset, graph2->data_level0_memory_, graph2->cur_element_count * graph2->size_data_per_element_);
+    memcpy(index_->data_level0_memory_ + level0_offset, graph2->data_level0_memory_, graph2->max_elements_ * graph2->size_data_per_element_);
     index_->cur_element_count = graph1->cur_element_count + graph2->cur_element_count;
     index_->enterpoint_node_ = graph1->maxlevel_ >= graph2->maxlevel_ ? graph1->enterpoint_node_ : graph2->enterpoint_node_;
     
     auto half = graph1->cur_element_count;
+    if (graph1->cur_element_count != graph1->max_elements_ || graph2->cur_element_count != graph2->max_elements_)
+        std::cout << "not insert all" << std::endl;
     for(int i = 0;i < index_->cur_element_count;i ++) {
         if (i < half) {
             index_->element_levels_[i] = graph1->element_levels_[i];
@@ -171,7 +174,7 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
                     throw std::runtime_error("Not enough memory: addPoint failed to allocate linklist");
                 memcpy(index_->linkLists_[i], graph2->linkLists_[i - half], index_->size_links_per_element_ * graph2->element_levels_[i - half] + 1);
 
-                for(int level = 1;level < graph2->element_levels_[i - half];level ++) {
+                for(int level = 1;level <= graph2->element_levels_[i - half];level ++) {
                     unsigned int* data = index_->get_linklist(i, level);
                     int size = index_->getListCount(data);
                     hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
@@ -191,6 +194,21 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
             
         }
     }
+    //std::cout << "finish to copy neighbor!" << std::endl;
+
+    for(int i = 0;i < index_->cur_element_count;i ++) {
+        for(int j = 0;j <= index_->element_levels_[i];j ++) {
+            auto data = index_->get_linklist_at_level(i, j);
+            int size = index_->getListCount(data);
+            hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+            for(int k = 0;k < size;k ++) {
+                auto cand = datal[k];
+                if (index_->element_levels_[cand] < j) {
+                    std::cout << "copy neighbor failed!" << std::endl;
+                }
+            }
+        }
+    }
 
     struct cmp {
         bool operator()(const std::pair<int,hnswlib::tableint>& x,std::pair<int,hnswlib::tableint>& y) const {
@@ -207,10 +225,10 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
     sort(node1.begin(), node1.end(), cmp());
     sort(node2.begin(), node2.end(), cmp());
     //connect the two graph by random edges
-    int pointer1 = 0,pointer2 = 0;
-    for(int level = std::min(graph1->maxlevel_,graph2->maxlevel_);level >= 0;level --) {
+    int pointer1 = 0, pointer2 = 0;
+    for(int level = std::min(graph1->maxlevel_, graph2->maxlevel_);level >= 0;level --) {
         if (level == 0)
-            pointer1 = node1.size(),pointer2 = node2.size();
+            pointer1 = node1.size(), pointer2 = node2.size();
         for(;pointer1 < node1.size();pointer1 ++)  
             if (node1[pointer1].first < level)
                 break;
@@ -218,26 +236,187 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
         for(;pointer2 < node2.size();pointer2 ++)  
             if (node2[pointer2].first < level)
                 break; 
-
+        //printf("now is level %d, g1 has %d points, g2 has %d points.\n", level, pointer1, pointer2);
+        using  pqc = std::priority_queue<std::pair<float, hnswlib::tableint>, std::vector<std::pair<float, hnswlib::tableint>>, hnswlib::HierarchicalNSW<float>::CompareByFirst>;
         static std::random_device rd;
         static std::mt19937 gen(rd());
         std::uniform_int_distribution<> distrib1(0, pointer1 - 1),distrib2(0, pointer2 - 1);
         //nn list of all node's neighbor in this layer
-        std::vector<std::vector<std::pair<float, hnswlib::tableint>>> anng(pointer1 + pointer2, std::vector<std::pair<float, hnswlib::tableint>>(index_->ef_construction_));
+        std::vector<std::vector<std::pair<float, hnswlib::tableint>>> anng(pointer1 + pointer2);
+        std::vector<pqc> pq_node(index_->cur_element_count);
+        std::vector<std::unordered_map<hnswlib::tableint, int>> visited_node(index_->cur_element_count);
+#pragma omp parallel for
         for(int i = 0;i < pointer1;i ++) {
             std::set<int> NewNode;
-            while (NewNode.size() < 4) {
+            while (NewNode.size() < std::min(smpN, pointer2)) {
                 int randomNum = distrib2(gen);
                 NewNode.insert(randomNum);
             }
-            for(auto v : NewNode) {
-                //anng[i].push_back({index_->fstdistfunc_()})
-            }
+            for(auto v : NewNode) 
+                anng[i].push_back({index_->Calc_dist(node2[v].second, node1[i].second), node2[v].second});
 
+            sort(anng[i].begin(), anng[i].end());
+            for(int j = 0;j < NewNode.size();j ++) {
+                pq_node[node1[i].second].push(anng[i][j]);
+                visited_node[node1[i].second][anng[i][j].second] = 1;
+            }
+                
         }
+#pragma omp parallel for
+        for(int i = 0;i < pointer2;i ++) {
+            std::set<int> NewNode;
+            while (NewNode.size() < std::min(smpN, pointer1)) {
+                int randomNum = distrib1(gen);
+                NewNode.insert(randomNum);
+            }
+            for(auto v : NewNode) 
+                anng[i + pointer1].push_back({index_->Calc_dist(node1[v].second, node2[i].second), node1[v].second});
+            sort(anng[i + pointer1].begin(), anng[i + pointer1].end());
+            for(int j = 0;j < NewNode.size();j ++) {
+                pq_node[node2[i].second].push(anng[i + pointer1][j]);
+                visited_node[node2[i].second][anng[i + pointer1][j].second] = 1;
+            }
+                
+        }
+        //std::cout << "finish to init neighbor!" << std::endl;
+        std::vector<std::pair<hnswlib::tableint, hnswlib::tableint>> level_point;
+        for(int i = 0;i < pointer1 + pointer2;i ++) {
+            if (i < pointer1)
+                level_point.push_back({node1[i].second, i});
+            else level_point.push_back({node2[i - pointer1].second, i});
+        }
+        
+        // for(int i = 0;i < pointer1 + pointer2;i ++) {
+        //     if (i < pointer1)
+        //         std::cout << node1[i].second << ' ' << index_->element_levels_[node1[i].second] << std::endl;
+        //     else std::cout << node2[i - pointer1].second << ' ' << index_->element_levels_[node2[i - pointer1].second] << std::endl;
+        // }
+        // for(int i = 0;i < pointer1 + pointer2; i ++) {
+        //     for(int j = 0;j < anng[i].size();j ++)
+        //         printf("%d ", anng[i][j].second);
+        //     std::cout << std::endl;
+        // }
+
+        // for(int i = 0;i < pointer1 + pointer2; i ++) {
+        //     for(int j = 0;j < anng[i].size();j ++)
+        //         if (index_->element_levels_[anng[i][j].second] < level) {
+        //             std::cout << i << ' ' << j << std::endl;
+        //             return;
+        //         }
+        // }
+
+
+        std::vector<std::pair<hnswlib::tableint, hnswlib::tableint>> level_point_copy(level_point);
+        if (level == 0) {
+            int sample_size = int(0.1 * (pointer1 + pointer2));
+            std::shuffle(level_point.begin(), level_point.end(), gen);
+            level_point.resize(sample_size);
+        }
+
+        int all_num = pointer1 + pointer2;
+        //printf("%d\n", all_num);
+        std::atomic<int> static_num = 0;
+        //std::vector<std::unordered_map<hnswlib::tableint, int>> visited_neighbor(index_->cur_element_count);
+        //std::cout << "finish to sample neighbor!" << std::endl;
+ 
+        while (1.0 * static_num / all_num <= 0.75) {
+            static_num = all_num;
+            std::vector<hnswlib::tableint> changed_point(index_->cur_element_count);
+#pragma omp parallel for
+            for(auto v : level_point) {       
+                unsigned int* data = index_->get_linklist_at_level(v.first, level);
+                int size = index_->getListCount(data);
+                hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+
+                for(int j = 0;j < std::min(int(anng[v.second].size()), smpN);j ++) {
+                    hnswlib::tableint q = anng[v.second][j].second;
+                    // if (visited_neighbor[v.first].count(q))
+                    //     continue;
+                    // visited_neighbor[v.first][q] = 1;
+
+                    for(int i = 0; i < std::min(size, smpN);i ++) {
+                        hnswlib::tableint p = datal[i];
+                        float dist = index_->Calc_dist(p, q);
+                        {
+                            std::lock_guard<std::mutex> lock(index_->link_list_locks_[p]);
+                            if (pq_node[p].size() < index_->ef_construction_ || pq_node[p].top().first > dist) {
+                                if (!visited_node[p].count(q)) {
+                                    visited_node[p][q] = 1;
+                                    changed_point[p] = 1;
+                                    pq_node[p].push({dist, q});
+                                }
+                                while (pq_node[p].size() > index_->ef_construction_) {
+                                    visited_node[p].erase(pq_node[p].top().second);
+                                    pq_node[p].pop();
+                                }
+
+                            }
+                        }
+
+                        {
+                            std::lock_guard<std::mutex> lock(index_->link_list_locks_[q]);
+                            if (pq_node[q].size() < index_->ef_construction_ || pq_node[q].top().first > dist) {
+                                if (!visited_node[q].count(p)) {
+                                    visited_node[q][p] = 1;
+                                    changed_point[q] = 1;
+                                    pq_node[q].push({dist, p});
+                                }
+                                while (pq_node[q].size() > index_->ef_construction_) {
+                                    visited_node[q].erase(pq_node[q].top().second);
+                                    pq_node[q].pop();
+                                }
+
+                            }
+                        }
+                    }
+                }
+                
+            }
+            //std::cout << "finish to nn descent!" << std::endl;
+#pragma omp parallel for
+            for(int i = 0;i < pointer1 + pointer2;i ++) {
+                hnswlib::tableint now = level_point_copy[i].first;
+                // if (level == 3)
+                //     printf("%d %d\n", now, changed_point[now]);
+                if (changed_point[now]) {
+                    static_num --;
+                    pqc pq(pq_node[now]);
+                    anng[i].resize(pq.size());
+                    for(int idx = pq.size() - 1;idx >= 0;idx --) {
+                        anng[i][idx] = pq.top();
+                        pq.pop();
+                    }
+                }
+            }
+            //std::cout << "finish to nn descent2!" << std::endl;
+            //printf("%d\n", static_num);
+        }
+        //std::cout << "finish to change point!" << std::endl;
+#pragma omp parallel for
+        for(auto v : level_point_copy) {
+            hnswlib::tableint now = v.first;
+            unsigned int* data = index_->get_linklist_at_level(now, level);
+            int size = index_->getListCount(data);
+            hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+            for(int i = 0; i < size;i ++) {
+                hnswlib::tableint p = datal[i];
+                pq_node[now].push({index_->Calc_dist(now, p), p});
+            }
+            int Mcurmax = level == 0 ? index_->maxM0_ : index_->maxM_;
+            auto neighbors = index_->getNeighborsByHeuristic2(pq_node[now], Mcurmax);
+            index_->setListCount(data, neighbors.size());
+            for(int i = 0;i < neighbors.size();i ++)
+                datal[i] = neighbors[i]; 
+        }
+        //std::cout << "finish to update neighbor!" << std::endl;
+        
     }
 
+}
 
+void
+IndexHNSW::Delete_By_Rate(double rate) {
+    
 }
 
 DatasetPtr

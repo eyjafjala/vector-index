@@ -380,7 +380,9 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
                 for (tableint id : return_list) {
                     dist_t curdist = fstdistfunc_(getDataByInternalId(id), getDataByInternalId(current_pair.second),
                                                   dist_func_param_);
-                    if (curdist < current_pair.first) {
+                    if (1.0 * curdist < current_pair.first) {
+                    //current_pair.first is the dist of q and u
+                    //curdist is the dist of u and v
                         good = false;
                         break;
                     }
