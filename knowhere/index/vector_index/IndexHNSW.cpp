@@ -123,6 +123,14 @@ if (CheckKeyInConfig(config, meta::BUILD_THREAD_NUM))
     // LOG_KNOWHERE_DEBUG_ << GetStatistics()->ToString();
 }
 
+struct cmp {
+    bool operator()(const std::pair<int,hnswlib::tableint>& x,std::pair<int,hnswlib::tableint>& y) const {
+        if (x.first == y.first)
+            return x.second < y.second;
+        return x.first > y.first;
+    }
+};
+
 void 
 IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, const VecIndexPtr index1, const VecIndexPtr index2) {
     GET_TENSOR_DATA_DIM(dataset_ptr)
@@ -210,13 +218,6 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
         }
     }
 
-    struct cmp {
-        bool operator()(const std::pair<int,hnswlib::tableint>& x,std::pair<int,hnswlib::tableint>& y) const {
-            if (x.first == y.first)
-                return x.second < y.second;
-            return x.first > y.first;
-        }
-    };
     std::vector<std::pair<int,hnswlib::tableint>> node1,node2;
     for(int i = 0;i < half;i ++)
         node1.push_back({index_->element_levels_[i], i});
@@ -416,7 +417,110 @@ IndexHNSW::Merge_build(const DatasetPtr& dataset_ptr, const Config& config, cons
 
 void
 IndexHNSW::Delete_By_Rate(double rate) {
-    
+    int num = index_->cur_element_count * rate;
+    //int last = index_->cur_element_count - num;
+    std::unordered_map<hnswlib::tableint, int> del_set;
+    // assume that delete is simple ,but below Alg is designed for all situation.
+    for(int i = num;i < index_->cur_element_count;i ++) 
+        del_set[i] = 1;
+    std::cout << "deleted points are " << index_->cur_element_count - num << std::endl;
+
+    //int bad_num = 0;
+    using  pqc = std::priority_queue<std::pair<float, hnswlib::tableint>, std::vector<std::pair<float, hnswlib::tableint>>, hnswlib::HierarchicalNSW<float>::CompareByFirst>;
+    std::vector<std::pair<int, hnswlib::tableint>> level_point;
+    for(int i = 0;i < index_->cur_element_count;i ++) {
+        if (!del_set.count(i))
+            level_point.push_back({index_->element_levels_[i], i});
+    }
+    std::sort(level_point.begin(), level_point.end(), cmp());
+    if (del_set.count(index_->enterpoint_node_)) {
+        index_->enterpoint_node_ = level_point[0].second;
+        index_->maxlevel_ = level_point[0].first;
+    }
+    printf("%d %d\n", index_->enterpoint_node_, index_->maxlevel_);
+
+    int pointer = 0;
+    for(int level = index_->maxlevel_;level >= 0;level --) {
+        if (level == 0)
+            pointer = level_point.size();
+        for(;pointer < level_point.size(); pointer ++) {
+            if (level_point[pointer].first < level)
+                break;
+        }
+        std::vector<pqc> candidate(pointer);
+        //std::vector<std::atomic<bool>> changed(pointer);
+        std::vector<std::atomic<bool>> changed(pointer);
+        std::mutex mtx;
+#pragma omp parallel for
+        for(int i = 0;i < pointer;i ++) {
+            unsigned int* data = index_->get_linklist_at_level(level_point[i].second, level);
+            int size = index_->getListCount(data);
+            hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+            for(int j = 0;j < size;j ++) {
+                hnswlib::tableint cand = datal[j];
+                if (del_set.count(cand)) {
+                    changed[i] = true;
+                    break;
+                }
+            }
+
+            if (changed[i]) 
+                for(int j = 0;j < size;j ++) {
+                    hnswlib::tableint cand = datal[j];
+                    if (!del_set.count(cand)) {
+                        float dist = index_->Calc_dist(cand, level_point[i].second);
+                        candidate[i].push({dist, cand});
+                    } else {
+                        unsigned int* d_data = index_->get_linklist_at_level(cand, level);
+                        int d_size = index_->getListCount(d_data);
+                        hnswlib::tableint* d_datal = (hnswlib::tableint*)(d_data + 1);
+                        for(int k = 0;k < d_size;k ++) {
+                            hnswlib::tableint d_cand = d_datal[k];
+                            if (!del_set.count(d_cand)) {
+                                float d = index_->Calc_dist(d_cand, level_point[i].second);
+                                candidate[i].push({d, d_cand});
+                            } 
+                        }
+                    }
+                }
+                
+            }
+#pragma omp parallel for
+            //update while all points are finished
+            for(int i = 0;i < pointer;i ++) {
+                if (changed[i]) {
+                    unsigned int* data = index_->get_linklist_at_level(level_point[i].second, level);
+                    int Mcurmax = level == 0 ? index_->maxM0_ : index_->maxM_;
+                    auto neighbors = index_->getNeighborsByHeuristic2(candidate[i], Mcurmax);
+                    index_->setListCount(data, neighbors.size());
+                    hnswlib::tableint* datal = (hnswlib::tableint*)(data + 1);
+                    for(int j = 0;j < neighbors.size();j ++) {
+                        datal[j] = neighbors[j];
+                }
+
+            }
+        }
+    }
+    //printf("bad num is %d\n", bad_num);
+    // if (del_set.count(index_->enterpoint_node_))
+    //     puts("del error 1");
+    // for(int i = 0;i < index_->cur_element_count;i ++) {
+    //     if (del_set.count(i))
+    //         continue;
+    //     for(int j = 0;j <= index_->element_levels_[i];j ++) {
+    //         auto data = index_->get_linklist_at_level(i, j);
+    //         int size = index_->getListCount(data);
+    //         for(int k = 1;k <= size;k ++)
+    //             if (del_set.count(data[k])) {
+    //                 puts("del error 2");
+    //                 printf("%d %d %d\n", i, index_->element_levels_[i], data[k]);
+    //                 exit(1);
+    //             }
+    //     }
+    // }
+
+    // auto data = index_->get_linklist_at_level(index_->enterpoint_node_, index_->maxlevel_);
+    // index_->getListCount(data);
 }
 
 DatasetPtr

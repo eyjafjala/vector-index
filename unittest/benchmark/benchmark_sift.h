@@ -119,6 +119,34 @@ class Benchmark_sift : public ::testing::Test {
     }
 
     float
+    CalcRecall(const int64_t* ids,const int64_t* ans, int32_t nq, int32_t k, double rate) {
+        int32_t hit = 0;
+        for (int32_t i = 0; i < nq; i++) {
+            std::unordered_set<int64_t> ground;
+            for(int32_t j = 0; j < k; j++) {
+                auto id = ans[i * k + j];
+                if (id >= int(nb_ * rate)) {
+                    printf("bad error1!\n");
+                    return 0;
+                }
+                ground.insert(id);
+            }
+            for (int32_t j = 0; j < k; j++) {
+                auto id = ids[i * k + j];
+                if (id >= int(nb_ * rate)) {
+                    printf("bad error2!\n");
+                    exit(0);
+                }
+                if (ground.count(id) > 0) {
+                    hit++;
+                    ground.erase(id);
+                }
+            }
+        }
+        return (hit * 1.0f / (nq * k));
+    }
+
+    float
     CalcRecall(const int64_t* ids, int32_t nq, int32_t k) {
         int32_t min_k = std::min(gt_k_, k);
         int32_t hit = 0;
@@ -128,6 +156,7 @@ class Benchmark_sift : public ::testing::Test {
                 auto id = ids[i * k + j];
                 if (ground.count(id) > 0) {
                     hit++;
+                    ground.erase(id);
                 }
             }
         }

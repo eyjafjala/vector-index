@@ -126,6 +126,37 @@ class Benchmark_knowhere : public Benchmark_sift {
         write_index(index_file_name, conf);
     }
     void
+    create_delete_index(const std::string& index_file_name,
+                        const knowhere::Config& conf,
+                        const double rate,
+                        const knowhere::IndexMode mode = knowhere::IndexMode::MODE_CPU) {
+        printf("[%.3f s] Building all on %d vectors\n", get_time_diff(), nb_);
+        auto& factory = knowhere::VecIndexFactory::GetInstance();
+        knowhere::DatasetPtr ds_ptr = knowhere::GenDataset(nb_, dim_, xb_);
+        index_ = factory.CreateVecIndex(index_type_, mode);
+        //puts("ok to build half graph");
+        index_->BuildAll(ds_ptr, conf);
+        printf("[%.3f s] Building HNSW\n", get_time_diff());
+        index_->Delete_By_Rate(rate);
+        printf("[%.3f s] Writing index file: %s\n", get_time_diff(), index_file_name.c_str());
+        write_index(index_file_name, conf);
+    }
+
+    void
+    create_delete_index_cmp(const std::string& index_file_name,
+                        const knowhere::Config& conf,
+                        const double rate,
+                        const knowhere::IndexMode mode = knowhere::IndexMode::MODE_CPU) {
+        printf("[%.3f s] Building all on %d vectors\n", get_time_diff(), nb_);
+        auto& factory = knowhere::VecIndexFactory::GetInstance();
+        knowhere::DatasetPtr ds_ptr = knowhere::GenDataset(int(nb_ * rate), dim_, xb_);
+        index_ = factory.CreateVecIndex(index_type_, mode);
+        //puts("ok to build half graph");
+        index_->BuildAll(ds_ptr, conf);
+        printf("[%.3f s] Writing index file: %s\n", get_time_diff(), index_file_name.c_str());
+        write_index(index_file_name, conf);
+    }
+    void
     create_index(const std::string& index_file_name,
                  const knowhere::Config& conf,
                  const knowhere::IndexMode mode = knowhere::IndexMode::MODE_CPU) {

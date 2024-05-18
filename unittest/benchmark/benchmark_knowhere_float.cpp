@@ -123,6 +123,37 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
         printf("================================================================================\n");
         printf("[%.3f s] Test '%s/%s' done\n\n", get_time_diff(), ann_test_name_.c_str(), index_type_.c_str());
     }
+    void 
+    test_hnsw_del(const knowhere::Config& cfg, double rate) {
+        auto conf = cfg;
+        auto M = knowhere::GetIndexParamHNSWM(conf);
+        auto efConstruction = knowhere::GetIndexParamEfConstruction(conf);
+        knowhere::SetMetaTopk(conf, para_k);
+        knowhere::DatasetPtr ds_ptr = knowhere::GenDataset(int(nb_ * rate), dim_, xb_);
+        knowhere::DatasetPtr qs_ptr = knowhere::GenDataset(10000, dim_, xq_);
+        auto ans = knowhere::BruteForce::Search(ds_ptr, qs_ptr, conf, nullptr);
+        auto ans_ids = knowhere::GetDatasetIDs(ans);
+        printf("\n[%0.3f s] %s | %s | M=%ld | efConstruction=%ld\n", get_time_diff(), ann_test_name_.c_str(),
+               index_type_.c_str(), M, efConstruction);
+        printf("================================================================================\n");
+        for (auto ef : EFs_) {
+            knowhere::SetIndexParamEf(conf, ef);
+            for (auto nq : NQs_) {
+                //knowhere::DatasetPtr qs_ptr = knowhere::GenDataset(nq, dim_, xq_);
+                for (auto k : TOPKs_) {
+                    knowhere::SetMetaTopk(conf, k);
+                    CALC_TIME_SPAN(auto result = index_->Query(qs_ptr, conf, nullptr));
+                    auto ids = knowhere::GetDatasetIDs(result);
+                    float recall = CalcRecall(ids, ans_ids, nq, k, rate);
+                    auto cmp = index_->Getcmp();
+                    auto hnswcmp = index_->Get_metric_cmp();
+                    printf("  ef = %4d, nq = %4d, k = %4d, elapse = %6.3fs, R@ = %.4f, cmp = %.4f, metric_cmp = %.4f\n", ef, nq, k, t_diff, recall, 1.0 * cmp / nq,1.0 * hnswcmp / nq);
+                }
+            }
+        }
+        printf("================================================================================\n");
+        printf("[%.3f s] Test '%s/%s' done\n\n", get_time_diff(), ann_test_name_.c_str(), index_type_.c_str());
+    }
 
     void
     test_hnsw(const knowhere::Config& cfg) {
@@ -149,7 +180,6 @@ class Benchmark_knowhere_float : public Benchmark_knowhere {
         }
         printf("================================================================================\n");
         printf("[%.3f s] Test '%s/%s' done\n\n", get_time_diff(), ann_test_name_.c_str(), index_type_.c_str());
-        fflush(stdout);
     }
 
     void
@@ -455,6 +485,38 @@ TEST_F(Benchmark_knowhere_float, TEST_HNSW_Insert_2) {
             std::string index_file_name = get_index_name({M, efc}) + ".Insert_2";
             create_merge_insert_index(index_file_name, conf);
             test_hnsw(conf);
+        }
+    }
+}
+
+TEST_F(Benchmark_knowhere_float, TEST_HNSW_Delete) {
+    index_type_ = knowhere::IndexEnum::INDEX_HNSW;
+
+    knowhere::Config conf = cfg_;
+    for (auto M : HNSW_Ms_) {
+        knowhere::SetIndexParamHNSWM(conf, M);
+        for (auto efc : EFCONs_) {
+            knowhere::SetIndexParamEfConstruction(conf, efc);
+
+            std::string index_file_name = get_index_name({M, efc}) + ".Delete";
+            create_delete_index(index_file_name, conf, 0.7);
+            test_hnsw_del(conf, 0.7);
+        }
+    }
+}
+
+TEST_F(Benchmark_knowhere_float, TEST_HNSW_Delete_Cmp) {
+    index_type_ = knowhere::IndexEnum::INDEX_HNSW;
+
+    knowhere::Config conf = cfg_;
+    for (auto M : HNSW_Ms_) {
+        knowhere::SetIndexParamHNSWM(conf, M);
+        for (auto efc : EFCONs_) {
+            knowhere::SetIndexParamEfConstruction(conf, efc);
+
+            std::string index_file_name = get_index_name({M, efc}) + ".Delete";
+            create_delete_index_cmp(index_file_name, conf, 0.7);
+            test_hnsw_del(conf, 0.7);
         }
     }
 }
